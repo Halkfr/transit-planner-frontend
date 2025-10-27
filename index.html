@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="data:," />
+
+    <!-- TailwindCss-->
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+
+    <!-- React & Babel -->
+    <script
+      crossorigin
+      src="https://unpkg.com/react@18/umd/react.development.js"
+    ></script>
+    <script
+      crossorigin
+      src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"
+    ></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- Material UI -->
+    <script
+      crossorigin
+      src="https://unpkg.com/@mui/material@5.15.15/umd/material-ui.development.js"
+    ></script>
+  </head>
+  <body class="p-8">
+    <div class="flex gap-4">
+      <div id="region-combobox"></div>
+      <div id="stop-combobox"></div>
+    </div>
+    <script src="index.js"></script>
+    <script type="text/babel" src="./components/react-combobox.js"></script>
+  </body>
+</html>
