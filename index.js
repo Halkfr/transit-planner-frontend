@@ -1,6 +1,7 @@
 const SERVER = "http://localhost:8000";
 
 const initialState = {
+  isAppInit: false,
   selectedStopId: "",
 
   regionList: [],
@@ -19,10 +20,18 @@ const initialState = {
 
 let currentState = structuredClone(initialState);
 
-const regionInputElem = document.getElementById("region-input");
-const stopInputElem = document.getElementById("stop-input");
-const regionListElem = document.getElementById("regions-list");
-const stopListElem = document.getElementById("stops-list");
+const regionSelectElem = new TomSelect("#region-select", {
+  maxItems: 1,
+  plugins: ["clear_button", "dropdown_input"],
+  persist: false,
+});
+
+const stopSelectElem = new TomSelect("#stop-select", {
+  maxItems: 1,
+  plugins: ["clear_button", "dropdown_input"],
+  persist: false,
+});
+
 const busListTitleElem = document.getElementById("bus-list-title");
 const busListElem = document.getElementById("bus-list");
 const scheduleListElem = document.getElementById("schedule-list");
@@ -39,7 +48,6 @@ const fetchNearestStop = async ({ latitude, longitude }) => {
     .then((response) => response.json())
     .then((data) => data[0]);
 
-  console.log(response);
   return response;
 };
 
@@ -123,7 +131,6 @@ const getUserLocation = () => {
       navigator.geolocation.getCurrentPosition(
         (position) => {
           const { latitude, longitude } = position.coords;
-          console.log({ latitude, longitude });
           resolve({ latitude, longitude });
         },
         (error) => {
@@ -150,9 +157,19 @@ const formatStopName = (stop_name, stop_code) => {
   return stop_code ? `${stop_name}, ${stop_code}` : stop_name;
 };
 
+const emptyStopSelect = () => {
+  stopSelectElem.clear();
+  stopSelectElem.clearOptions();
+  stopSelectElem.disable();
+};
+
 /* Actions */
 const onRegionSelect = async () => {
-  const currentRegionName = regionInputElem.value;
+  const currentRegionName = regionSelectElem.items[0];
+
+  emptyStopSelect();
+
+  if (!currentRegionName) return;
 
   if (!currentState.regionList.some((el) => el === currentRegionName)) {
     alert("Select region from region list to proceed");
@@ -171,8 +188,11 @@ const onRegionSelect = async () => {
 };
 
 const onBusStopSelect = async () => {
-  const currentRegionName = regionInputElem.value;
-  const currentBusStopName = stopInputElem.value;
+  const currentRegionName = regionSelectElem.items[0];
+  const currentBusStopName = stopSelectElem.items[0];
+
+  if (!currentRegionName || !currentBusStopName) return;
+
   if (
     !currentState.busStopList.some((el) => el.stop_name === currentBusStopName)
   ) {
@@ -194,7 +214,7 @@ const onBusStopSelect = async () => {
   }
 
   currentState.resultRegionName = currentRegionName;
-  currentState.resultBusStopName = stopInputElem.value;
+  currentState.resultBusStopName = stopSelectElem.getValue();
   currentState.resultScheduleList = [];
   currentState.resultBusName = "";
   currentState.isBusSearchPerformed = true;
@@ -216,59 +236,88 @@ const onBusSelect = async (busObject) => {
   renderUI();
 };
 
+/* Clear inputs and revert app state */
 const onClear = () => {
-  stopInputElem.value = "";
-  regionInputElem.value = "";
+  regionSelectElem.clear();
 
-  const regionList = currentState.regionList;
-  currentState = structuredClone(initialState);
-  currentState.regionList = regionList;
+  currentState = structuredClone({
+    ...initialState,
+    regionList: currentState.regionList,
+    isAppInit: true,
+  });
 
   renderUI();
 };
 
 const onPageLoad = async () => {
-  regionInputElem.value = "";
-  stopInputElem.disabled = true;
-  stopInputElem.value = "";
-
   let userLocation;
+  let userStop;
+
+  /* Event listeners */
+  regionSelectElem.on("change", () => {
+    if (!currentState.isAppInit) return;
+    onRegionSelect();
+  });
+  stopSelectElem.on("change", () => {
+    if (!currentState.isAppInit) return;
+    onBusStopSelect();
+  });
+  stopSelectElem.disable();
+
+  /* Get region list */
   try {
     currentState.regionList = await fetchAllRegions();
+
+    /* add region list to select */
+    currentState.regionList.forEach((regionName) => {
+      regionSelectElem.addOption({ value: regionName, text: regionName });
+    });
   } catch {
     console.error(`Error getting all regions: ${error.message}`);
   }
 
+  /* Optional: Get user location */
   try {
     userLocation = await getUserLocation();
   } catch (error) {
-    console.error(`Error getting user location: ${error.message}`);
+    /* Return if error or location prompt denied, not error */
+    console.log(error.message);
+    return;
   }
 
+  /* Get user stop data */
   try {
-    const { stop_area, stop_name, stop_code } = await fetchNearestStop(
-      userLocation
-    );
-    currentState.busStopList = await fetchRegionStops(stop_area);
-
-    regionInputElem.value = stop_area;
-    stopInputElem.disabled = false;
-    stopInputElem.value = formatStopName(stop_name, stop_code);
+    userStop = await fetchNearestStop(userLocation);
   } catch (error) {
-    console.error(`Error getting user region, nearest stop and region stops`);
+    console.error(`Error getting user nearest stop data`);
   }
 
+  /* Get stops list for user region */
+  try {
+    currentState.busStopList = await fetchRegionStops(userStop.stop_area);
+
+    /* add stop list to select */
+    currentState.busStopList.forEach((el) => {
+      stopSelectElem.addOption({ value: el.stop_name, text: el.stop_name });
+    });
+
+    stopSelectElem.refreshOptions(false);
+  } catch (error) {
+    console.error(`Error getting stops for current region`);
+  }
+
+  /* Set initial value if user accepted location prompt  */
+  regionSelectElem.setValue(userStop.stop_area);
+  stopSelectElem.setValue(
+    formatStopName(userStop.stop_name, userStop.stop_code)
+  );
+  stopSelectElem.enable();
+
+  /* Handle stop selection */
   onBusStopSelect();
 };
 
-const onRegionInput = () => {
-  currentState.busStopList = [];
-
-  stopInputElem.value = "";
-  stopInputElem.disabled = true;
-};
-
-/* Render whole page state on demand */
+/* Render page state on demand */
 const renderUI = () => {
   const {
     regionList,
@@ -280,26 +329,24 @@ const renderUI = () => {
   } = currentState;
 
   /* Primitive clear all elements and update all (costly in performance, but browser optimizes it) */
-  regionListElem.innerHTML = "";
-  stopListElem.innerHTML = "";
   busListTitleElem.innerHTML = "";
   busListElem.innerHTML = "";
   scheduleListElem.innerHTML = "";
 
-  const currentRegionName = regionInputElem.value;
+  const currentRegionName = regionSelectElem.getValue();
 
   /* Is second input disabled */
   if (!regionList || !regionList.some((el) => el === currentRegionName)) {
-    stopInputElem.disabled = true;
+    stopSelectElem.disable();
   } else if (busStopList.length) {
-    stopInputElem.disabled = false;
+    stopSelectElem.enable();
   }
 
   /* Hints for regions */
   regionList.forEach((element) => {
     const newOption = document.createElement("option");
     newOption.innerText = element;
-    regionListElem.appendChild(newOption);
+    regionSelectElem.addOption(newOption);
   });
 
   /* Hints for stops */
@@ -307,7 +354,7 @@ const renderUI = () => {
     const newOption = document.createElement("option");
     newOption.innerText = element.stop_name;
     newOption.id = element.stop_id;
-    stopListElem.appendChild(newOption);
+    stopSelectElem.addOption(newOption);
   });
 
   /* Bus list result */
@@ -319,24 +366,62 @@ const renderUI = () => {
       const newOption = document.createElement("button");
 
       newOption.innerText = busObject.route_short_name;
-
       newOption.addEventListener("click", async () => onBusSelect(busObject));
 
+      if (currentState.resultBusName == busObject.route_short_name) {
+        newOption.className =
+          "px-2 py-2 rounded-lg bg-indigo-600 text-white font-bold shadow-md ring-2 ring-indigo-300 transition-all cursor-pointer text-center";
+      } else {
+        newOption.className =
+          "px-2 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 font-medium hover:border-indigo-400 hover:bg-indigo-50 transition-all cursor-pointer text-center shadow-sm";
+      }
       busListElem.appendChild(newOption);
     });
   } else if (currentState.isBusSearchPerformed) {
-    busListTitleElem.innerText = `No busses available for bus stop ${stopInputElem.value}`;
+    busListTitleElem.innerText = `No busses available for bus stop ${stopSelectElem.getValue()}`;
   }
+  resultScheduleList.length
+    ? document
+        .querySelector("#schedule-list-container")
+        .classList.remove("hidden")
+    : document
+        .querySelector("#schedule-list-container")
+        .classList.add("hidden");
 
   /* Schedule list */
   if (resultScheduleList.length) {
     resultScheduleList.forEach((time) => {
-      const newOption = document.createElement("label");
-      newOption.innerText = time;
+      const newOption = document.createElement("li");
+      newOption.className =
+        "px-5 py-3 flex items-center justify-between text-gray-700 hover:bg-gray-50 transition-colors first:rounded-t-xl last:rounded-b-xl";
+
+      newOption.innerHTML = `
+  <div class="flex items-center gap-3">
+    <svg class="w-4 h-4 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="10"></circle>
+      <polyline points="12 6 12 12 16 14"></polyline>
+    </svg>
+    <span class="font-medium">${time}</span>
+  </div>`;
       scheduleListElem.appendChild(newOption);
     });
   } else if (currentState.isScheduleSearchPerformed) {
-    scheduleListElem.innerHTML = `Schedule not available for bus ${currentState.resultBusName}`;
+    scheduleListElem.innerHTML = `
+    <li class="px-6 py-12 flex flex-col items-center justify-center text-center">
+      <div class="bg-gray-100 p-3 rounded-full mb-3">
+        <svg class="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+        </svg>
+      </div>
+      <p class="text-gray-900 font-semibold">No departures found</p>
+      <p class="text-sm text-gray-500 mt-1">
+        Schedule not available for bus <span class="font-bold text-gray-700">${currentState.resultBusName}</span>
+      </p>
+    </li>`;
+
+    document
+      .querySelector("#schedule-list-container")
+      .classList.remove("hidden");
   }
 };
 
@@ -344,7 +429,8 @@ const initApp = async () => {
   try {
     await onPageLoad();
 
-    renderUI();
+    /* Set app initialized */
+    currentState.isAppInit = true;
   } catch (error) {
     console.error("Failed to initialize app:", error);
   }
