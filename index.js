@@ -1,7 +1,7 @@
 const SERVER = "http://localhost:8000";
 
 const initialState = {
-  isAppInit: false,
+  areSelectorEventsEnabled: true,
   selectedStopId: "",
 
   regionList: [],
@@ -163,6 +163,55 @@ const emptyStopSelect = () => {
   stopSelectElem.disable();
 };
 
+const updateRegionStopValue = (region, stop) => {
+  currentState.areSelectorEventsEnabled = false;
+
+  regionSelectElem.setValue(region);
+  stopSelectElem.setValue(stop);
+  stopSelectElem.enable();
+
+  currentState.areSelectorEventsEnabled = true;
+};
+
+const addUrlParam = (param, value) => {
+  const urlParams = new URLSearchParams(window.location.search);
+  urlParams.set(param, value);
+  window.history.replaceState(
+    {},
+    "",
+    `${window.location.pathname}?${urlParams}`
+  );
+};
+
+const clearUrlParams = () => {
+  const urlParams = new URLSearchParams(window.location.search);
+  urlParams.delete("region");
+  urlParams.delete("stop");
+
+  const newRelativePathQuery =
+    window.location.pathname +
+    (urlParams.toString() ? "?" + urlParams.toString() : "");
+
+  window.history.replaceState({}, "", newRelativePathQuery);
+};
+
+const setInitialSearch = async () => {
+  const urlParams = new URLSearchParams(window.location.search);
+  const regionParam = urlParams.get("region");
+  const stopParam = urlParams.get("stop");
+
+  if (regionParam && stopParam) {
+    await setSearchRegionStop(regionParam, stopParam);
+  } else {
+    await setSearchUserLocation();
+  }
+};
+
+const onFindNearClick = async () => {
+  clearUrlParams();
+  await setSearchUserLocation();
+};
+
 /* Actions */
 const onRegionSelect = async () => {
   const currentRegionName = regionSelectElem.items[0];
@@ -238,28 +287,37 @@ const onBusSelect = async (busObject) => {
 
 /* Clear inputs and revert app state */
 const onClear = () => {
+  clearUrlParams();
   regionSelectElem.clear();
 
   currentState = structuredClone({
     ...initialState,
     regionList: currentState.regionList,
-    isAppInit: true,
+    areSelectorEventsEnabled: true,
   });
 
   renderUI();
 };
 
 const onPageLoad = async () => {
-  let userLocation;
-  let userStop;
-
   /* Event listeners */
-  regionSelectElem.on("change", () => {
-    if (!currentState.isAppInit) return;
+  regionSelectElem.on("change", (value) => {
+    if (!currentState.areSelectorEventsEnabled) return;
+
+    if (value.length) {
+      clearUrlParams();
+      addUrlParam("region", value);
+    }
+
     onRegionSelect();
   });
-  stopSelectElem.on("change", () => {
-    if (!currentState.isAppInit) return;
+  stopSelectElem.on("change", (value) => {
+    if (!currentState.areSelectorEventsEnabled) return;
+
+    if (value.length) {
+      addUrlParam("stop", value);
+    }
+
     onBusStopSelect();
   });
   stopSelectElem.disable();
@@ -276,25 +334,13 @@ const onPageLoad = async () => {
     console.error(`Error getting all regions: ${error.message}`);
   }
 
-  /* Optional: Get user location */
-  try {
-    userLocation = await getUserLocation();
-  } catch (error) {
-    /* Return if error or location prompt denied, not error */
-    console.log(error.message);
-    return;
-  }
+  await setInitialSearch();
+};
 
-  /* Get user stop data */
-  try {
-    userStop = await fetchNearestStop(userLocation);
-  } catch (error) {
-    console.error(`Error getting user nearest stop data`);
-  }
-
+const setSearchRegionStop = async (region, stop) => {
   /* Get stops list for user region */
   try {
-    currentState.busStopList = await fetchRegionStops(userStop.stop_area);
+    currentState.busStopList = await fetchRegionStops(region);
 
     /* add stop list to select */
     currentState.busStopList.forEach((el) => {
@@ -307,12 +353,54 @@ const onPageLoad = async () => {
   }
 
   /* Set initial value if user accepted location prompt  */
-  regionSelectElem.setValue(userStop.stop_area);
-  stopSelectElem.setValue(
-    formatStopName(userStop.stop_name, userStop.stop_code)
-  );
-  stopSelectElem.enable();
+  updateRegionStopValue(region, stop);
 
+  /* Handle stop selection */
+  onBusStopSelect();
+};
+
+const setSearchUserLocation = async () => {
+  let userLocation;
+  let userStop;
+  let region;
+  let stop;
+
+  /* Optional: Get user location */
+  try {
+    userLocation = await getUserLocation();
+  } catch (error) {
+    /* Return if error or location prompt denied, not error */
+    console.log(error.message);
+    return;
+  }
+
+  /* Get user stop data */
+  try {
+    userStop = await fetchNearestStop(userLocation);
+    region = userStop.stop_area;
+    stop = formatStopName(userStop.stop_name, userStop.stop_code);
+  } catch (error) {
+    console.error(`Error getting user nearest stop data`);
+  }
+
+  /* Get stops list for user region */
+  try {
+    currentState.busStopList = await fetchRegionStops(region);
+
+    /* add stop list to select */
+    currentState.busStopList.forEach((el) => {
+      stopSelectElem.addOption({ value: el.stop_name, text: el.stop_name });
+    });
+
+    stopSelectElem.refreshOptions(false);
+  } catch (error) {
+    console.error(`Error getting stops for current region`);
+  }
+
+  updateRegionStopValue(region, stop);
+
+  addUrlParam("region", region);
+  addUrlParam("stop", stop);
   /* Handle stop selection */
   onBusStopSelect();
 };
@@ -362,7 +450,6 @@ const renderUI = () => {
     busListTitleElem.innerText = `Results for: ${resultRegionName}, ${resultBusStopName}`;
 
     resultBusList.forEach((busObject) => {
-      console.log(resultBusList);
       const newOption = document.createElement("button");
 
       newOption.innerText = busObject.route_short_name;
@@ -428,9 +515,6 @@ const renderUI = () => {
 const initApp = async () => {
   try {
     await onPageLoad();
-
-    /* Set app initialized */
-    currentState.isAppInit = true;
   } catch (error) {
     console.error("Failed to initialize app:", error);
   }
