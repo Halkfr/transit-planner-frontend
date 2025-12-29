@@ -1,4 +1,4 @@
-const SERVER = "http://localhost:8000";
+const SERVER = "https://transit-planner-estonia-gdbcakfshagmhyaa.swedencentral-01.azurewebsites.net/";
 
 const initialState = {
   areSelectorEventsEnabled: true,
