@@ -119,7 +119,7 @@ const fetchSchedule = async (busObject) => {
     }),
   })
     .then((response) => response.json())
-    .then((response) => response.map((el) => el.normalized_arrival_time));
+    .then((response) => response.map((el) => el.arrival_time));
 
   return response;
 };
