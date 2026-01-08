@@ -1,4 +1,4 @@
-const SERVER = "https://transit-planner-estonia-gdbcakfshagmhyaa.swedencentral-01.azurewebsites.net/";
+const SERVER = "https://stops-backend-bqbccyedarbrbzer.polandcentral-01.azurewebsites.net/";
 
 const initialState = {
   areSelectorEventsEnabled: true,
